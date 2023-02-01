@@ -1,1 +1,3 @@
-airflow
+*.log
+airflow/logs
+airflow/dags/__pycache__
