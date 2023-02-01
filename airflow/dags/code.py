@@ -1,163 +1,55 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "c60af11b-ec6a-48e1-9840-97a3762f3a4d",
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "# Licensed to the Apache Software Foundation (ASF) under one\n",
-    "# or more contributor license agreements.  See the NOTICE file\n",
-    "# distributed with this work for additional information\n",
-    "# regarding copyright ownership.  The ASF licenses this file\n",
-    "# to you under the Apache License, Version 2.0 (the\n",
-    "# \"License\"); you may not use this file except in compliance\n",
-    "# with the License.  You may obtain a copy of the License at\n",
-    "#\n",
-    "#   http://www.apache.org/licenses/LICENSE-2.0\n",
-    "#\n",
-    "# Unless required by applicable law or agreed to in writing,\n",
-    "# software distributed under the License is distributed on an\n",
-    "# \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY\n",
-    "# KIND, either express or implied.  See the License for the\n",
-    "# specific language governing permissions and limitations\n",
-    "# under the License.\n",
-    "\"\"\"\n",
-    "Example DAG for demonstrating behavior of Datasets feature.\n",
-    "\n",
-    "Notes on usage:\n",
-    "\n",
-    "Turn on all the dags.\n",
-    "\n",
-    "DAG dataset_produces_1 should run because it's on a schedule.\n",
-    "\n",
-    "After dataset_produces_1 runs, dataset_consumes_1 should be triggered immediately\n",
-    "because its only dataset dependency is managed by dataset_produces_1.\n",
-    "\n",
-    "No other dags should be triggered.  Note that even though dataset_consumes_1_and_2 depends on\n",
-    "the dataset in dataset_produces_1, it will not be triggered until dataset_produces_2 runs\n",
-    "(and dataset_produces_2 is left with no schedule so that we can trigger it manually).\n",
-    "\n",
-    "Next, trigger dataset_produces_2.  After dataset_produces_2 finishes,\n",
-    "dataset_consumes_1_and_2 should run.\n",
-    "\n",
-    "Dags dataset_consumes_1_never_scheduled and dataset_consumes_unknown_never_scheduled should not run because\n",
-    "they depend on datasets that never get updated.\n",
-    "\"\"\"\n",
-    "from __future__ import annotations\n",
-    "\n",
-    "import pendulum\n",
-    "\n",
-    "from airflow import DAG, Dataset\n",
-    "from airflow.operators.bash import BashOperator\n",
-    "\n",
-    "# [START dataset_def]\n",
-    "dag1_dataset = Dataset(\"s3://dag1/output_1.txt\", extra={\"hi\": \"bye\"})\n",
-    "# [END dataset_def]\n",
-    "dag2_dataset = Dataset(\"s3://dag2/output_1.txt\", extra={\"hi\": \"bye\"})\n",
-    "\n",
-    "with DAG(\n",
-    "    dag_id=\"dataset_produces_1\",\n",
-    "    catchup=False,\n",
-    "    start_date=pendulum.datetime(2021, 1, 1, tz=\"UTC\"),\n",
-    "    schedule=\"@daily\",\n",
-    "    tags=[\"produces\", \"dataset-scheduled\"],\n",
-    ") as dag1:\n",
-    "    # [START task_outlet]\n",
-    "    BashOperator(outlets=[dag1_dataset], task_id=\"producing_task_1\", bash_command=\"sleep 5\")\n",
-    "    # [END task_outlet]\n",
-    "\n",
-    "with DAG(\n",
-    "    dag_id=\"dataset_produces_2\",\n",
-    "    catchup=False,\n",
-    "    start_date=pendulum.datetime(2021, 1, 1, tz=\"UTC\"),\n",
-    "    schedule=None,\n",
-    "    tags=[\"produces\", \"dataset-scheduled\"],\n",
-    ") as dag2:\n",
-    "    BashOperator(outlets=[dag2_dataset], task_id=\"producing_task_2\", bash_command=\"sleep 5\")\n",
-    "\n",
-    "# [START dag_dep]\n",
-    "with DAG(\n",
-    "    dag_id=\"dataset_consumes_1\",\n",
-    "    catchup=False,\n",
-    "    start_date=pendulum.datetime(2021, 1, 1, tz=\"UTC\"),\n",
-    "    schedule=[dag1_dataset],\n",
-    "    tags=[\"consumes\", \"dataset-scheduled\"],\n",
-    ") as dag3:\n",
-    "    # [END dag_dep]\n",
-    "    BashOperator(\n",
-    "        outlets=[Dataset(\"s3://consuming_1_task/dataset_other.txt\")],\n",
-    "        task_id=\"consuming_1\",\n",
-    "        bash_command=\"sleep 5\",\n",
-    "    )\n",
-    "\n",
-    "with DAG(\n",
-    "    dag_id=\"dataset_consumes_1_and_2\",\n",
-    "    catchup=False,\n",
-    "    start_date=pendulum.datetime(2021, 1, 1, tz=\"UTC\"),\n",
-    "    schedule=[dag1_dataset, dag2_dataset],\n",
-    "    tags=[\"consumes\", \"dataset-scheduled\"],\n",
-    ") as dag4:\n",
-    "    BashOperator(\n",
-    "        outlets=[Dataset(\"s3://consuming_2_task/dataset_other_unknown.txt\")],\n",
-    "        task_id=\"consuming_2\",\n",
-    "        bash_command=\"sleep 5\",\n",
-    "    )\n",
-    "\n",
-    "with DAG(\n",
-    "    dag_id=\"dataset_consumes_1_never_scheduled\",\n",
-    "    catchup=False,\n",
-    "    start_date=pendulum.datetime(2021, 1, 1, tz=\"UTC\"),\n",
-    "    schedule=[\n",
-    "        dag1_dataset,\n",
-    "        Dataset(\"s3://this-dataset-doesnt-get-triggered\"),\n",
-    "    ],\n",
-    "    tags=[\"consumes\", \"dataset-scheduled\"],\n",
-    ") as dag5:\n",
-    "    BashOperator(\n",
-    "        outlets=[Dataset(\"s3://consuming_2_task/dataset_other_unknown.txt\")],\n",
-    "        task_id=\"consuming_3\",\n",
-    "        bash_command=\"sleep 5\",\n",
-    "    )\n",
-    "\n",
-    "with DAG(\n",
-    "    dag_id=\"dataset_consumes_unknown_never_scheduled\",\n",
-    "    catchup=False,\n",
-    "    start_date=pendulum.datetime(2021, 1, 1, tz=\"UTC\"),\n",
-    "    schedule=[\n",
-    "        Dataset(\"s3://unrelated/dataset3.txt\"),\n",
-    "        Dataset(\"s3://unrelated/dataset_other_unknown.txt\"),\n",
-    "    ],\n",
-    "    tags=[\"dataset-scheduled\"],\n",
-    ") as dag6:\n",
-    "    BashOperator(\n",
-    "        task_id=\"unrelated_task\",\n",
-    "        outlets=[Dataset(\"s3://unrelated_task/dataset_other_unknown.txt\")],\n",
-    "        bash_command=\"sleep 5\",\n",
-    "    )"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.11.1"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
+from datetime import datetime, timedelta
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+
+
+default_args = {
+    'owner': 'IvanovaDasha',
+    'retries': 5,
+    'retry_delay': timedelta(minutes=5)
 }
+
+
+def greet(some_dict, ti):
+    print("some dict: ", some_dict)
+    first_name = ti.xcom_pull(task_ids='get_name', key='first_name')
+    last_name = ti.xcom_pull(task_ids='get_name', key='last_name')
+    age = ti.xcom_pull(task_ids='get_age', key='age')
+    print(f"Hello World! My name is {first_name} {last_name}, "
+          f"and I am {age} years old!")
+
+
+def get_name(ti):
+    ti.xcom_push(key='first_name', value='Jerry')
+    ti.xcom_push(key='last_name', value='Fridman')
+
+
+def get_age(ti):
+    ti.xcom_push(key='age', value=19)
+
+
+with DAG(
+    default_args=default_args,
+    dag_id='our_dag_with_python_operator_v07',
+    description='Our first dag using python operator',
+    start_date=datetime(2021, 10, 6),
+    schedule_interval='@daily'
+) as dag:
+    task1 = PythonOperator(
+        task_id='greet',
+        python_callable=greet,
+        op_kwargs={'some_dict': {'a': 1, 'b': 2}}
+    )
+
+    task2 = PythonOperator(
+        task_id='get_name',
+        python_callable=get_name
+    )
+
+    task3 = PythonOperator(
+        task_id='get_age',
+        python_callable=get_age
+    )
+
+    [task2, task3] >> task1
