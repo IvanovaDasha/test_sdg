@@ -31,8 +31,8 @@ def get_age(ti):
 
 with DAG(
     default_args=default_args,
-    dag_id='our_dag_with_python_operator_v07',
-    description='Our first dag using python operator',
+    dag_id='a_test',
+    description='Test',
     start_date=datetime(2021, 10, 6),
     schedule_interval='@daily'
 ) as dag:
